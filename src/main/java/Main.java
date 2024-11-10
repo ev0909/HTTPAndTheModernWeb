@@ -1,82 +1,25 @@
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.ServerSocket;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.util.List;
 
 public class Main {
-    public static void main(String[] args) {
-        final var validPaths = List.of("/index.html", "/spring.svg", "/spring.png", "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html", "/classic.html", "/events.html", "/events.js");
+    
+    private static final int SERVER_SOCKET = 9999;
+    private static final int poolSizeThreads = 64;
+    public static void main(String[] args) throws InterruptedException {
 
-        try (final var serverSocket = new ServerSocket(9999)) {
-            while (true) {
-                try (
-                        final var socket = serverSocket.accept();
-                        final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                        final var out = new BufferedOutputStream(socket.getOutputStream());
-                ) {
-                    // read only request line for simplicity
-                    // must be in form GET /path HTTP/1.1
-                    final var requestLine = in.readLine();
-                    final var parts = requestLine.split(" ");
-
-                    if (parts.length != 3) {
-                        // just close socket
-                        continue;
-                    }
-
-                    final var path = parts[1];
-                    if (!validPaths.contains(path)) {
-                        out.write((
-                                "HTTP/1.1 404 Not Found\r\n" +
-                                        "Content-Length: 0\r\n" +
-                                        "Connection: close\r\n" +
-                                        "\r\n"
-                        ).getBytes());
-                        out.flush();
-                        continue;
-                    }
-
-                    final var filePath = Path.of(".", "public", path);
-                    final var mimeType = Files.probeContentType(filePath);
-
-                    // special case for classic
-                    if (path.equals("/classic.html")) {
-                        final var template = Files.readString(filePath);
-                        final var content = template.replace(
-                                "{time}",
-                                LocalDateTime.now().toString()
-                        ).getBytes();
-                        out.write((
-                                "HTTP/1.1 200 OK\r\n" +
-                                        "Content-Type: " + mimeType + "\r\n" +
-                                        "Content-Length: " + content.length + "\r\n" +
-                                        "Connection: close\r\n" +
-                                        "\r\n"
-                        ).getBytes());
-                        out.write(content);
-                        out.flush();
-                        continue;
-                    }
-
-                    final var length = Files.size(filePath);
-                    out.write((
-                            "HTTP/1.1 200 OK\r\n" +
-                                    "Content-Type: " + mimeType + "\r\n" +
-                                    "Content-Length: " + length + "\r\n" +
-                                    "Connection: close\r\n" +
-                                    "\r\n"
-                    ).getBytes());
-                    Files.copy(filePath, out);
-                    out.flush();
-                }
+        Server server = new Server(SERVER_SOCKET, poolSizeThreads);
+        server.addHandler("GET", "/messages", ((request, responseStream) -> {
+            try {
+                server.responseWithoutContent(responseStream,"404", "Not found");
+            } catch (IOException e) {
+                throw new RuntimeException(e);
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        }));
+
+        server.addHandler("POST", "/messages", (request, responseStream) -> server.responseWithoutContent(responseStream,
+                "404", "Not found"));
+//        server.addHandler("GET", "/", ((request, responseStream) -> server.defaultHandler(responseStream, "spring.png")));
+        server.start();
+
+
     }
 }
